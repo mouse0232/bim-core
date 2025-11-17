@@ -157,11 +157,12 @@ impl AsyncHTTPClient {
             debug!("Download {path_query}");
 
             let request_head = format!(
-                "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: bim/1.0\r\n\r\n",
+                "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36\r\n\r\n",
                 path_query, host_port,
-            );
+            )
+            .into_bytes();
 
-            match timeout(Duration::from_secs(10), stream.write_all(request_head.as_bytes())).await {
+            match timeout(Duration::from_secs(10), stream.write_all(&request_head)).await {
                 Ok(Ok(_)) => {
                     match timeout(Duration::from_secs(10), stream.read(&mut buffer)).await {
                         Ok(Ok(size)) => {
@@ -256,7 +257,7 @@ impl AsyncHTTPClient {
             debug!("Upload {path_query} size {data_size}");
 
             let request_head = format!(
-                "POST {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: bim/1.0\r\nContent-Length: {}\r\n\r\n",
+                "POST {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36\r\nContent-Length: {}\r\n\r\n",
                 path_query, host_port, data_size
             );
 

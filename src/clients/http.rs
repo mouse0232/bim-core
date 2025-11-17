@@ -117,7 +117,7 @@ impl HTTPClient {
         for (_i, task) in tasks.into_iter().enumerate() {
             if let Err(_e) = task.join() {
                 #[cfg(debug_assertions)]
-                debug!("Upload thread panicked");
+                debug!("{} thread panicked", if load == 0 { "Upload" } else { "Download" });
             }
         }
 
@@ -131,16 +131,25 @@ impl HTTPClient {
             }
         }
 
+        // 确保在测试结束后再记录一次最终数据点
+        counter.count(now.elapsed().as_micros());
+        
+        let speed = counter.speed();
+        let status = counter.status();
+        
+        #[cfg(debug_assertions)]
+        debug!("Calculated {} speed: {}, status: {}", if load == 0 { "upload" } else { "download" }, speed, status);
+
         match load {
             0 => {
-                self.upload = counter.speed();
-                self.upload_status = counter.status();
+                self.upload = speed;
+                self.upload_status = status;
                 #[cfg(debug_assertions)]
                 debug!("Upload speed: {}, status: {}", self.upload, self.upload_status);
             }
             _ => {
-                self.download = counter.speed();
-                self.download_status = counter.status();
+                self.download = speed;
+                self.download_status = status;
                 #[cfg(debug_assertions)]
                 debug!("Download speed: {}, status: {}", self.download, self.download_status);
             }
@@ -150,12 +159,17 @@ impl HTTPClient {
     }
 
     fn request_http_download(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
-        let path_query = if url.query().is_some() {
-            format!("{}?{}", url.path(), url.query().unwrap())
-        } else {
-            url.path().to_string()
-        };
-        let host_port = format!("{}:{}", url.host_str().unwrap_or(""), url.port_or_known_default().unwrap_or(80));
+        let chunk_count = 50;
+        let data_size = chunk_count * 1024 * 1024 as u64;
+        let mut data_counter = 0u64;
+        let mut buffer = [0; 65536];
+
+        let host_port = format!(
+            "{}:{}",
+            url.host_str().unwrap(),
+            url.port_or_known_default().unwrap()
+        );
+        let path_str = url.path();
 
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
@@ -168,175 +182,77 @@ impl HTTPClient {
 
         counter.wait();
 
-        let mut buffer = [0; 1024];
-        let mut _data_counter: u64 = 0;
-        let mut data_size: u64 = 50 * 1024 * 1024; // 默认大小
+        'request: while !counter.is_end() {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis();
+            let path_query = format!(
+                "{}?cors=true&r={}&ckSize={}&size={}",
+                path_str, now, chunk_count, data_size
+            );
 
-        let request_head = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: bim/1.0\r\n\r\n",
-            path_query, host_port,
-        )
-        .into_bytes();
+            #[cfg(debug_assertions)]
+            debug!("Download {path_query}");
 
-        match stream.write_all(&request_head) {
-            Ok(_) => {
-                #[cfg(debug_assertions)]
-                debug!("Download request sent: {}", String::from_utf8_lossy(&request_head));
-                
-                // 读取并解析HTTP响应头
-                let mut headers_buf = Vec::new();
-                let mut header_finished = false;
-                let mut read_buf = [0u8; 1];
-                
-                while !header_finished && !counter.is_end() {
-                    match stream.read(&mut read_buf) {
-                        Ok(1) => {
-                            headers_buf.push(read_buf[0]);
-                            // 检查是否到达响应头结尾(\r\n\r\n)
-                            if headers_buf.len() >= 4 && 
-                               headers_buf[headers_buf.len()-4] == b'\r' &&
-                               headers_buf[headers_buf.len()-3] == b'\n' &&
-                               headers_buf[headers_buf.len()-2] == b'\r' &&
-                               headers_buf[headers_buf.len()-1] == b'\n' {
-                                header_finished = true;
-                            }
-                        }
-                        Ok(0) => {
-                            // 连接已关闭
-                            #[cfg(debug_assertions)]
-                            debug!("Connection closed while reading headers");
-                            return;
-                        }
-                        Ok(_) => {
-                            // 不应该发生的情况
-                            #[cfg(debug_assertions)]
-                            debug!("Unexpected read size while reading headers");
-                            return;
-                        }
-                        Err(_e) => {
-                            #[cfg(debug_assertions)]
-                            debug!("Failed to read response headers: {} - Error: {}", url, _e);
-                            return;
-                        }
-                    }
-                }
-                
-                // 解析响应头
-                let headers_str = String::from_utf8_lossy(&headers_buf);
-                #[cfg(debug_assertions)]
-                debug!("HTTP Response headers: {}", headers_str);
-                
-                // 检查HTTP状态码
-                let status_line = headers_str.lines().next().unwrap_or("");
-                #[cfg(debug_assertions)]
-                debug!("HTTP Status line: {}", status_line);
-                
-                if !status_line.contains("200") && !status_line.contains("206") {
+            let request_head = format!(
+                "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: bim/1.0\r\n\r\n",
+                path_query, host_port,
+            )
+            .into_bytes();
+
+            match stream.write_all(&request_head) {
+                Ok(_) => {
                     #[cfg(debug_assertions)]
-                    debug!("Non-success HTTP status code detected");
-                    return;
-                }
+                    debug!("Download request sent: {}", String::from_utf8_lossy(&request_head));
+                    
+                    if let Ok(size) = stream.read(&mut buffer) {
+                        #[cfg(debug_assertions)]
+                        debug!("Download Status: {size}");
 
-                // 解析Content-Length头部
-                for line in headers_str.lines().skip(1) {
-                    if line.is_empty() {
-                        break;
-                    }
-                    // 处理可能的大小写变化和额外空格
-                    let trimmed_line = line.trim();
-                    if trimmed_line.to_lowercase().starts_with("content-length:") {
-                        let value_part = trimmed_line.split(':').nth(1).unwrap_or("0").trim();
-                        if let Ok(len) = value_part.parse::<u64>() {
-                            data_size = len;
-                            #[cfg(debug_assertions)]
-                            debug!("Content-Length header found: {} from value '{}'", data_size, value_part);
+                        if size > 0 {
+                            let count = size as u64;
+                            data_counter = count;
+                            counter.increase(count);
                         } else {
-                            #[cfg(debug_assertions)]
-                            debug!("Failed to parse Content-Length value: '{}'", value_part);
+                            break 'request;
                         }
-                    }
-                }
-                
-                #[cfg(debug_assertions)]
-                debug!("Final target data size: {}", data_size);
-            }
-            Err(_e) => {
-                #[cfg(debug_assertions)]
-                debug!("Download write error: {}", _e);
-                return;
-            }
-        }
-
-        #[cfg(debug_assertions)]
-        debug!("Starting to read download data, target size: {}", data_size);
-
-        let mut read_count = 0;
-        #[cfg(debug_assertions)]
-        let mut total_bytes_read = 0u64;
-        
-        while (_data_counter < data_size || data_size == 0) && !counter.is_end() {
-            match stream.read(&mut buffer) {
-                Ok(size) => {
-                    read_count += 1;
-                    #[cfg(debug_assertions)]
-                    {
-                        total_bytes_read += size as u64;
-                    }
-                    
-                    if size == 0 {
-                        // 连接已关闭，传输完成
-                        #[cfg(debug_assertions)]
-                        debug!("Download completed, connection closed. Total bytes: {}, read operations: {}", _data_counter, read_count);
-                        break;
-                    }
-                    
-                    let _count = size as u64;
-                    _data_counter += _count;
-                    counter.increase(_count);
-
-                    #[cfg(debug_assertions)]
-                    {
-                        // 检查计数器当前值
-                        let current_counter = counter.counter.load(std::sync::atomic::Ordering::Relaxed);
-                        if _data_counter % (10 * 1024) < _count as u64 { // 每10KB输出一次日志
-                            debug!("Downloaded {} bytes so far (counter: {}), current read size: {}, read operations: {}", 
-                                   _data_counter, current_counter, size, read_count);
-                        }
-                        
-                        if read_count <= 10 {
-                            // 记录前10次读取的详细信息
-                            debug!("Read #{}: {} bytes, total: {} bytes (counter: {})", 
-                                   read_count, size, _data_counter, current_counter);
-                        } else if read_count % 100 == 0 {
-                            // 每100次读取输出一次摘要
-                            debug!("Read #{}: {} bytes, total: {} bytes (counter: {})", 
-                                   read_count, size, _data_counter, current_counter);
-                        }
-                    }
-                    
-                    // 如果data_size为0（未设置Content-Length），设置一个默认值以避免无限循环
-                    if data_size == 0 && read_count > 1000 {
-                        #[cfg(debug_assertions)]
-                        debug!("No Content-Length header and read more than 1000 times, stopping download");
-                        break;
+                    } else {
+                        break 'request;
                     }
                 }
                 Err(_e) => {
                     #[cfg(debug_assertions)]
-                    debug!("Download read error: {} - Total bytes: {}, read operations: {}", _e, _data_counter, read_count);
-                    break;
+                    debug!("Download write error: {}", _e);
+
+                    break 'request;
+                }
+            }
+
+            while data_counter < data_size && !counter.is_end() {
+                match stream.read(&mut buffer) {
+                    Ok(size) => {
+                        let count = size as u64;
+                        data_counter += count;
+                        counter.increase(count);
+                        
+                        #[cfg(debug_assertions)]
+                        if data_counter % (1024 * 1024) < count as u64 { // 每MB输出一次日志
+                            debug!("Downloaded {} bytes so far", data_counter);
+                        }
+                    }
+                    Err(_e) => {
+                        #[cfg(debug_assertions)]
+                        debug!("Download read error: {}", _e);
+
+                        break 'request;
+                    }
                 }
             }
         }
         
         #[cfg(debug_assertions)]
-        debug!("Download finished. Total bytes: {}, Target size: {}, Total read operations: {}", _data_counter, data_size, read_count);
-        
-        // 如果读取的字节数大于0但data_size为0，更新data_size以确保正确计算速度
-        if _data_counter > 0 && data_size == 0 {
-            #[cfg(debug_assertions)]
-            debug!("Would update data_size to actual downloaded bytes: {} (but data_size is not mutable here)", _data_counter);
-        }
+        debug!("Download test completed with {} bytes read", data_counter);
     }
 
     fn request_http_upload(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
@@ -360,7 +276,7 @@ impl HTTPClient {
         counter.wait();
 
         let request_head = format!(
-            "POST {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: bim/1.0\r\nContent-Length: {}\r\n\r\n",
+            "POST {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36\r\nContent-Length: {}\r\n\r\n",
             path_query, host_port, data_size
         );
 

@@ -161,7 +161,9 @@ impl LoadCounter {
     }
 
     pub fn increase(&self, count: u64) {
-        self.counter.fetch_add(count, std::sync::atomic::Ordering::Relaxed);
+        let previous = self.counter.fetch_add(count, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(debug_assertions)]
+        debug!("Counter increased by {} from {} to {}", count, previous, previous + count);
     }
 
     pub fn count(&self, time_passed: u128) {
@@ -169,6 +171,9 @@ impl LoadCounter {
         
         let mut results = self.results.lock().unwrap();
         results.push((c, time_passed));
+        
+        #[cfg(debug_assertions)]
+        debug!("Counter recorded: {} bytes at {} microseconds (total {} records)", c, time_passed, results.len());
     }
 
     pub fn speed(&self) -> f64 {
@@ -190,14 +195,16 @@ impl LoadCounter {
             return 0.0;
         }
         
-        // 使用所有数据点或最后10个数据点来计算速度
-        let (start_index, end_index) = if results.len() >= 10 {
-            // 使用最后10个数据点
-            (results.len() - 10, results.len() - 1)
-        } else {
-            // 使用所有数据点
-            (0, results.len() - 1)
-        };
+        // 查找第一个非零数据点作为起始点
+        let start_index = results.iter().position(|&(bytes, _)| bytes > 0).unwrap_or(0);
+        let end_index = results.len() - 1;
+        
+        // 如果所有数据点都是0，返回0.0
+        if start_index == end_index && results[start_index].0 == 0 {
+            #[cfg(debug_assertions)]
+            debug!("All data points are zero, returning 0.0");
+            return 0.0;
+        }
         
         let (c_start, t_start) = results[start_index];
         let (c_end, t_end) = results[end_index];
@@ -249,6 +256,13 @@ impl LoadCounter {
             debug!("Calculated speed is very small, returning minimum displayable value");
             return 0.001; // 返回最小显示值0.001 Mbps而不是0.0
         }
+        
+        // 确保速度值合理（不超过100Gbps）
+        if speed_mbps > 100_000.0 {
+            #[cfg(debug_assertions)]
+            debug!("Calculated speed is unreasonably high, returning 0.0");
+            return 0.0;
+        }
 
         speed_mbps
     }
@@ -282,12 +296,18 @@ impl LoadCounter {
 
         // 原始断流检测逻辑
         last = 0;
-        for (num, _) in results.iter() {
+        for (num, time) in results.iter() {
+            #[cfg(debug_assertions)]
+            debug!("Status check - bytes: {}, time: {}", num, time);
+            
             if *num == last {
                 stop += 1;
             }
             last = *num;
         }
+
+        #[cfg(debug_assertions)]
+        debug!("Stop counter: {}", stop);
 
         if stop < 6 {
             String::from("正常")
