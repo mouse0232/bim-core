@@ -399,8 +399,25 @@ impl Client for HTTPClient {
         }
 
         self.latency = *times.first().unwrap() as f64 / 1000.0;
-        let avg = times.iter().sum::<u128>() as f64 / times.len() as f64;
-        self.jitter = (avg - self.latency) / 1000.0;
+        
+        // 改进抖动计算方式：使用标准差或者相邻差值的平均值
+        let sum: u128 = times.iter().sum();
+        let avg = sum as f64 / times.len() as f64;
+        
+        // 计算相邻测量值之间差值的绝对值的平均值作为抖动
+        let mut jitter_sum = 0.0;
+        for i in 1..times.len() {
+            let diff = (times[i] as f64 - times[i-1] as f64).abs();
+            jitter_sum += diff;
+        }
+        
+        // 如果有至少2个测量值，计算平均差值作为抖动
+        if times.len() > 1 {
+            self.jitter = (jitter_sum / (times.len() - 1) as f64) / 1000.0;
+        } else {
+            // 如果只有一个测量值，使用与平均值的差作为抖动
+            self.jitter = ((avg - self.latency).abs()) / 1000.0;
+        }
 
         #[cfg(debug_assertions)]
         debug!("Ping test completed - latency: {}, jitter: {}", self.latency, self.jitter);
