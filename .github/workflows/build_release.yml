@@ -39,6 +39,7 @@ jobs:
           mkdir -p ./build/release
           export RUSTFLAGS="-C link-arg=-lgcc -Clink-arg=-static-libgcc"
           cross build --target ${{ matrix.target }} -r -Z build-std=std,panic_abort --config 'profile.release.panic="abort"'
+          mkdir -p ./build/release
           cp ./target/${{ matrix.target }}/release/bimc ./build/release/bimc-${{ matrix.target }}
           cp ./target/${{ matrix.target }}/release/bim ./build/release/bim-${{ matrix.target }}
       
@@ -85,7 +86,7 @@ jobs:
         timeout-minutes: 15
         run: |
           cargo build -r
-          mkdir -p ./build/release
+          New-Item -ItemType Directory -Force -Path ./build/release
           cp ./target/release/bimc.exe ./build/release/bimc.exe
           cp ./target/release/bim.exe ./build/release/bim.exe
           cd ./build/release
