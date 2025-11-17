@@ -213,30 +213,34 @@ impl LoadCounter {
             return 0.0;
         }
 
-        // 检查字节差是否为0
-        if c_end <= c_start {
-            #[cfg(debug_assertions)]
-            debug!("Byte difference is zero or negative, returning 0.0");
-            return 0.0;
-        }
-
-        let byte_diff = c_end - c_start;
-        let time_diff = t_end - t_start;
+        let byte_diff = c_end.saturating_sub(c_start); // 使用饱和减法避免下溢
+        let time_diff = t_end - t_start; // 时间差不应该为负数
         
         #[cfg(debug_assertions)]
         debug!("Byte difference: {}, Time difference: {} μs", byte_diff, time_diff);
 
+        // 检查是否有数据传输
+        if byte_diff == 0 {
+            #[cfg(debug_assertions)]
+            debug!("No data transferred, returning 0.0");
+            return 0.0;
+        }
+
         // 计算速度: (字节差 * 8) / (时间差 微秒) = Mbps
-        let speed_mbps = (byte_diff * 8) as f64 / time_diff as f64;
+        // 注意单位转换: 
+        // - 字节转比特: * 8
+        // - 微秒转秒: / 1_000_000
+        // - 结果单位: Mbps (兆比特每秒)
+        let speed_mbps = (byte_diff as f64 * 8.0) / (time_diff as f64 / 1_000_000.0) / 1_000_000.0;
         
         #[cfg(debug_assertions)]
         debug!("Calculated speed: {} Mbps", speed_mbps);
         
-        // 如果计算出的速度为0，但有数据传输，则返回一个最小值
-        if speed_mbps == 0.0 && byte_diff > 0 {
+        // 确保返回值不是负数或NaN
+        if speed_mbps.is_nan() || speed_mbps.is_sign_negative() {
             #[cfg(debug_assertions)]
-            debug!("Speed calculated as 0 but data was transferred, returning minimum speed");
-            return 0.001; // 返回一个最小速度值
+            debug!("Calculated speed is invalid (NaN or negative), returning 0.0");
+            return 0.0;
         }
 
         speed_mbps
