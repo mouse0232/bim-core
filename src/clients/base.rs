@@ -231,6 +231,13 @@ impl LoadCounter {
         
         #[cfg(debug_assertions)]
         debug!("Calculated speed: {} Mbps", speed_mbps);
+        
+        // 如果计算出的速度为0，但有数据传输，则返回一个最小值
+        if speed_mbps == 0.0 && byte_diff > 0 {
+            #[cfg(debug_assertions)]
+            debug!("Speed calculated as 0 but data was transferred, returning minimum speed");
+            return 0.001; // 返回一个最小速度值
+        }
 
         speed_mbps
     }
