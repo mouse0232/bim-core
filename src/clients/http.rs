@@ -181,7 +181,7 @@ impl HTTPClient {
         match stream.write_all(&request_head) {
             Ok(_) => {
                 #[cfg(debug_assertions)]
-                debug!("Download request sent");
+                debug!("Download request sent: {}", String::from_utf8_lossy(&request_head));
                 
                 match stream.read(&mut buffer) {
                     Ok(size) => {
@@ -193,7 +193,7 @@ impl HTTPClient {
                             counter.increase(_data_counter);
                             
                             #[cfg(debug_assertions)]
-                            debug!("Initial download data: {} bytes", _data_counter);
+                            debug!("Initial download data: {} bytes, buffer content: {:?}", _data_counter, &buffer[..size.min(50)]);
                         } else {
                             #[cfg(debug_assertions)]
                             debug!("Download read returned 0 bytes");
@@ -217,13 +217,15 @@ impl HTTPClient {
         #[cfg(debug_assertions)]
         debug!("Starting to read download data, target size: {}", data_size);
 
+        let mut _read_count = 0;
         while _data_counter < data_size && !counter.is_end() {
             match stream.read(&mut buffer) {
                 Ok(size) => {
+                    _read_count += 1;
                     if size == 0 {
                         // 连接已关闭，传输完成
                         #[cfg(debug_assertions)]
-                        debug!("Download completed, connection closed. Total bytes: {}", _data_counter);
+                        debug!("Download completed, connection closed. Total bytes: {}, read operations: {}", _data_counter, _read_count);
                         break;
                     }
                     
@@ -232,20 +234,26 @@ impl HTTPClient {
                     counter.increase(_count);
 
                     #[cfg(debug_assertions)]
-                    if _data_counter % (1024 * 1024) < _count as u64 { // 每MB输出一次日志
-                        debug!("Downloaded {} bytes so far", _data_counter);
+                    if _data_counter % (10 * 1024) < _count as u64 { // 每10KB输出一次日志
+                        debug!("Downloaded {} bytes so far, current read size: {}, read operations: {}", _data_counter, size, _read_count);
+                    }
+                    
+                    #[cfg(debug_assertions)]
+                    if _read_count <= 5 {
+                        // 记录前几次读取的详细信息
+                        debug!("Read #{}: {} bytes, buffer sample: {:?}", _read_count, size, &buffer[..size.min(50)]);
                     }
                 }
                 Err(_e) => {
                     #[cfg(debug_assertions)]
-                    debug!("Download read error: {} - Total bytes: {}", _e, _data_counter);
+                    debug!("Download read error: {} - Total bytes: {}, read operations: {}", _e, _data_counter, _read_count);
                     break;
                 }
             }
         }
         
         #[cfg(debug_assertions)]
-        debug!("Download finished. Total bytes: {}, Target size: {}", _data_counter, data_size);
+        debug!("Download finished. Total bytes: {}, Target size: {}, Total read operations: {}", _data_counter, data_size, _read_count);
     }
 
     fn request_http_upload(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
