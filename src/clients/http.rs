@@ -186,9 +186,29 @@ impl HTTPClient {
                 match stream.read(&mut buffer) {
                     Ok(size) => {
                         #[cfg(debug_assertions)]
-                        debug!("Download Status: {size}");
+                        debug!("Download initial read: {} bytes", size);
 
                         if size > 0 {
+                            // 检查是否是HTTP响应
+                            let response_str = String::from_utf8_lossy(&buffer[..size.min(100)]);
+                            #[cfg(debug_assertions)]
+                            debug!("Response start: {:?}", response_str);
+                            
+                            // 检查HTTP状态码
+                            if response_str.starts_with("HTTP/") {
+                                if let Some(status_line_end) = response_str.find("\r\n") {
+                                    let status_line = &response_str[..status_line_end];
+                                    #[cfg(debug_assertions)]
+                                    debug!("HTTP Status line: {}", status_line);
+                                    
+                                    // 检查是否是成功的状态码(2xx)
+                                    if !status_line.contains("200") && !status_line.contains("206") {
+                                        #[cfg(debug_assertions)]
+                                        debug!("Non-success HTTP status code detected");
+                                    }
+                                }
+                            }
+
                             _data_counter = size as u64;
                             counter.increase(_data_counter);
                             
