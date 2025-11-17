@@ -183,28 +183,60 @@ impl HTTPClient {
                 #[cfg(debug_assertions)]
                 debug!("Download request sent");
                 
-                match stream.read(&mut buffer) {
-                    Ok(size) => {
-                        #[cfg(debug_assertions)]
-                        debug!("Download Status: {size}");
-
-                        if size > 0 {
-                            _data_counter = size as u64;
-                            counter.increase(_data_counter);
-                            
+                // 读取并解析HTTP响应头
+                let mut headers_buf = String::new();
+                let mut header_finished = false;
+                
+                while !header_finished && !counter.is_end() {
+                    match stream.read(&mut buffer[..1]) {
+                        Ok(1) => {
+                            headers_buf.push(buffer[0] as char);
+                            // 检查是否到达响应头结尾(\r\n\r\n)
+                            if headers_buf.ends_with("\r\n\r\n") {
+                                header_finished = true;
+                                #[cfg(debug_assertions)]
+                                debug!("HTTP headers received: {}", headers_buf);
+                            }
+                        }
+                        Ok(0) => {
+                            // 连接已关闭
                             #[cfg(debug_assertions)]
-                            debug!("Initial download data: {} bytes", _data_counter);
-                        } else {
+                            debug!("Connection closed while reading headers");
+                            return;
+                        }
+                        Ok(_) => {
+                            // 不应该发生的情况
                             #[cfg(debug_assertions)]
-                            debug!("Download read returned 0 bytes");
+                            debug!("Unexpected read size while reading headers");
+                        }
+                        Err(_e) => {
+                            #[cfg(debug_assertions)]
+                            debug!("Failed to read response headers: {} - Error: {}", url, _e);
                             return;
                         }
                     }
-                    Err(_e) => {
-                        #[cfg(debug_assertions)]
-                        debug!("Failed to read response: {} - Error: {}", url, _e);
-                        return;
+                }
+                
+                // 解析Content-Length头
+                let mut content_length: Option<u64> = None;
+                for line in headers_buf.lines() {
+                    if line.to_lowercase().starts_with("content-length:") {
+                        if let Some(length_str) = line.split(':').nth(1) {
+                            if let Ok(length) = length_str.trim().parse::<u64>() {
+                                content_length = Some(length);
+                                #[cfg(debug_assertions)]
+                                debug!("Content-Length: {}", length);
+                            }
+                        }
+                        break;
                     }
+                }
+                
+                // 如果没有Content-Length，使用默认值
+                if content_length.is_none() {
+                    content_length = Some(data_size); // 50MB
+                    #[cfg(debug_assertions)]
+                    debug!("No Content-Length header, using default size: {} bytes", data_size);
                 }
             }
             Err(_e) => {
