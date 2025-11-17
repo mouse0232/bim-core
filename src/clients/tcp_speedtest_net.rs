@@ -109,10 +109,8 @@ impl SpeedtestNetTcpClient {
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
             Err(_e) => {
-                #[cfg(debug_assertions)]
-                debug!("Connection error");
-                counter.wait();
-                return;
+                log::debug!("Failed to connect to server: {}", self.config.server);
+                None
             }
         };
 
@@ -139,9 +137,8 @@ impl SpeedtestNetTcpClient {
                         counter.increase(count);
                     }
                     Err(_e) => {
-                        #[cfg(debug_assertions)]
-                        debug!("Download read error");
-                        return;
+                        log::debug!("Failed to read from server: {}", self.config.server);
+                        None
                     }
                 }
             }

@@ -13,6 +13,7 @@ use tokio_rustls::{TlsConnector, rustls::{ClientConfig, pki_types::ServerName, R
 use crate::clients::base::{get_address_with_fallback, Client, LoadCounter};
 use crate::utils::SpeedTestResult;
 
+#[allow(dead_code)]
 pub struct AsyncHTTPClient {
     download_url: Url,
     upload_url: Url,

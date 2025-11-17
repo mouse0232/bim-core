@@ -133,10 +133,8 @@ impl HTTPClient {
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
             Err(e) => {
-                #[cfg(debug_assertions)]
-                debug!("Connection error: {}", e);
-                counter.wait();
-                return;
+                log::debug!("Failed to connect to proxy: {}", url);
+                None
             }
         };
 
@@ -225,10 +223,8 @@ impl HTTPClient {
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
             Err(_e) => {
-                #[cfg(debug_assertions)]
-                debug!("Connection error");
-                counter.wait();
-                return;
+                log::debug!("Failed to connect to proxy: {}", url);
+                None
             }
         };
 
@@ -257,9 +253,8 @@ impl HTTPClient {
                     counter.increase(length);
                 }
                 Err(_e) => {
-                    #[cfg(debug_assertions)]
-                    debug!("Upload write error");
-                    break 'request;
+                    log::debug!("Failed to send request: {}", url);
+                    None
                 }
             }
 
@@ -271,9 +266,8 @@ impl HTTPClient {
                         counter.increase(count);
                     }
                     Err(_e) => {
-                        #[cfg(debug_assertions)]
-                        debug!("Upload write error");
-                        break 'request;
+                        log::debug!("Failed to read response: {}", url);
+                        None
                     }
                 }
             }
