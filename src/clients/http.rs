@@ -295,17 +295,23 @@ impl HTTPClient {
                     counter.increase(_count);
 
                     #[cfg(debug_assertions)]
-                    if _data_counter % (10 * 1024) < _count as u64 { // 每10KB输出一次日志
-                        debug!("Downloaded {} bytes so far, current read size: {}, read operations: {}", _data_counter, size, read_count);
-                    }
-                    
-                    #[cfg(debug_assertions)]
-                    if read_count <= 10 {
-                        // 记录前10次读取的详细信息
-                        debug!("Read #{}: {} bytes, total: {} bytes", read_count, size, _data_counter);
-                    } else if read_count % 100 == 0 {
-                        // 每100次读取输出一次摘要
-                        debug!("Read #{}: {} bytes, total: {} bytes", read_count, size, _data_counter);
+                    {
+                        // 检查计数器当前值
+                        let current_counter = counter.counter.load(std::sync::atomic::Ordering::Relaxed);
+                        if _data_counter % (10 * 1024) < _count as u64 { // 每10KB输出一次日志
+                            debug!("Downloaded {} bytes so far (counter: {}), current read size: {}, read operations: {}", 
+                                   _data_counter, current_counter, size, read_count);
+                        }
+                        
+                        if read_count <= 10 {
+                            // 记录前10次读取的详细信息
+                            debug!("Read #{}: {} bytes, total: {} bytes (counter: {})", 
+                                   read_count, size, _data_counter, current_counter);
+                        } else if read_count % 100 == 0 {
+                            // 每100次读取输出一次摘要
+                            debug!("Read #{}: {} bytes, total: {} bytes (counter: {})", 
+                                   read_count, size, _data_counter, current_counter);
+                        }
                     }
                     
                     // 如果data_size为0（未设置Content-Length），设置一个默认值以避免无限循环
