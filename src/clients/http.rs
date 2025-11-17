@@ -1,18 +1,16 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::net::SocketAddr;
 
 #[cfg(debug_assertions)]
 use log::debug;
-
-use url::Url;
 
 use crate::clients::base::{get_address_with_fallback, make_connection, Client, LoadCounter};
 use crate::utils::SpeedTestResult;
 
 use std::io::{Read, Write};
-use std::time::SystemTime;
+use url::Url;
 
 pub struct HTTPClient {
     download_url: Url,
@@ -72,22 +70,23 @@ impl HTTPClient {
         #[cfg(debug_assertions)]
         debug!("Starting {} threads for {:?}", self.threads, if load == 0 { "upload" } else { "download" });
 
-        for i in 0..self.threads {
+        for _i in 0..self.threads {
             let a = self.address.clone();
             let u = url.clone();
             let c = counter.clone();
 
             let task = thread::spawn(move || {
                 #[cfg(debug_assertions)]
-                debug!("Thread {} started for {:?}", i, if load == 0 { "upload" } else { "download" });
+                debug!("Thread {} started for {:?}", _i, if load == 0 { "upload" } else { "download" });
                 
-                match load {
-                    0 => Self::request_http_upload(a, u, c),
-                    _ => Self::request_http_download(a, u, c),
-                };
+                if load == 0 {
+                    Self::request_http_upload(a, u, c);
+                } else {
+                    Self::request_http_download(a, u, c);
+                }
                 
                 #[cfg(debug_assertions)]
-                debug!("Thread {} finished for {:?}", i, if load == 0 { "upload" } else { "download" });
+                debug!("Thread {} finished for {:?}", _i, if load == 0 { "upload" } else { "download" });
             });
             tasks.push(task);
             thread::sleep(Duration::from_millis(100));
@@ -145,23 +144,13 @@ impl HTTPClient {
     }
 
     fn request_http_download(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
-        let chunk_count = 350;
-        let data_size = chunk_count * 128 * 1024 as u64;
-        let host_port = format!(
-            "{}:{}",
-            url.host_str().unwrap(),
-            url.port_or_known_default().unwrap()
-        );
-        let path_str = url.path();
-
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let path_query = format!("{}?x={}&chunk={}&size={}", path_str, now, chunk_count, data_size);
-
-        #[cfg(debug_assertions)]
-        debug!("Download {path_query}");
+        let data_size = 50 * 1024 * 1024;
+        let path_query = if url.query().is_some() {
+            format!("{}?{}", url.path(), url.query().unwrap())
+        } else {
+            url.path().to_string()
+        };
+        let host_port = format!("{}:{}", url.host_str().unwrap_or(""), url.port_or_known_default().unwrap_or(80));
 
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
@@ -175,7 +164,7 @@ impl HTTPClient {
         counter.wait();
 
         let mut buffer = [0; 1024];
-        let mut data_counter: u64; // 修复：移除初始化值
+        let mut _data_counter: u64 = 0; // 修复：初始化data_counter
 
         let request_head = format!(
             "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: bim/1.0\r\n\r\n",
@@ -194,8 +183,8 @@ impl HTTPClient {
                         debug!("Download Status: {size}");
 
                         if size > 0 {
-                            data_counter = size as u64;
-                            counter.increase(data_counter);
+                            _data_counter = size as u64;
+                            counter.increase(_data_counter);
                         } else {
                             #[cfg(debug_assertions)]
                             debug!("Download read returned 0 bytes");
@@ -219,35 +208,35 @@ impl HTTPClient {
         #[cfg(debug_assertions)]
         debug!("Starting to read download data, target size: {}", data_size);
 
-        while data_counter < data_size && !counter.is_end() {
+        while _data_counter < data_size && !counter.is_end() {
             match stream.read(&mut buffer) {
                 Ok(size) => {
                     if size == 0 {
                         // 连接已关闭，传输完成
                         #[cfg(debug_assertions)]
-                        debug!("Download completed, connection closed. Total bytes: {}", data_counter);
+                        debug!("Download completed, connection closed. Total bytes: {}", _data_counter);
                         break;
                     }
                     
                     let _count = size as u64;
-                    data_counter += _count;
+                    _data_counter += _count;
                     counter.increase(_count);
 
                     #[cfg(debug_assertions)]
-                    if data_counter % (1024 * 1024) < _count as u64 { // 每MB输出一次日志
-                        debug!("Downloaded {} bytes so far", data_counter);
+                    if _data_counter % (1024 * 1024) < _count as u64 { // 每MB输出一次日志
+                        debug!("Downloaded {} bytes so far", _data_counter);
                     }
                 }
-                Err(e) => {
+                Err(_e) => {
                     #[cfg(debug_assertions)]
-                    debug!("Failed to read response: {} - Error: {}", url, e);
+                    debug!("Failed to read response: {} - Error: {}", url, _e);
                     return;
                 }
             }
         }
         
         #[cfg(debug_assertions)]
-        debug!("Download finished, total bytes: {}", data_counter);
+        debug!("Download finished, total bytes: {}", _data_counter);
         
         // 确保所有数据都被处理
         if let Err(_e) = stream.flush() {
@@ -263,18 +252,18 @@ impl HTTPClient {
 
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Failed to connect to proxy: {} - Error: {}", url, e);
+                debug!("Failed to connect to proxy: {} - Error: {}", url, _e);
                 return;
             }
         };
 
         counter.wait();
 
-        let mut data_counter: u64;  // 修复：移除初始化值
+        let mut _data_counter: u64 = 0;  // 修复：初始化data_counter
         let request_chunk = vec![b'O'; 131072]; // 创建一个128KB的缓冲区填充值
-        let _host_str = url.host_str().unwrap_or("");
+        let host_str = url.host_str().unwrap_or("");
 
         let request_head = format!(
             "POST {} HTTP/1.1\r\n\
@@ -284,26 +273,27 @@ impl HTTPClient {
              Content-Length: {}\r\n\
              Connection: close\r\n\r\n",
             path_str,
-            _host_str,
+            host_str,
             data_size
         )
         .into_bytes();
 
         #[cfg(debug_assertions)]
-        debug!("Upload request head size: {}", request_head.len());
+        debug!("Upload request head: {:?}", String::from_utf8_lossy(&request_head));
+
         #[cfg(debug_assertions)]
         debug!("Upload target size: {}", data_size);
 
         match stream.write_all(&request_head) {
             Ok(_) => {
-                data_counter = request_head.len() as u64;
+                _data_counter = request_head.len() as u64;
                 #[cfg(debug_assertions)]
-                debug!("Upload request head sent, {} bytes", data_counter);
-                counter.increase(data_counter);
+                debug!("Upload request head sent, {} bytes", _data_counter);
+                counter.increase(_data_counter);
             }
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Upload write error: {}", e);
+                debug!("Upload write error: {}", _e);
                 return;
             }
         }
@@ -311,9 +301,9 @@ impl HTTPClient {
         #[cfg(debug_assertions)]
         debug!("Starting to upload data");
 
-        while data_counter < data_size && !counter.is_end() {
+        while _data_counter < data_size && !counter.is_end() {
             // 计算还需要发送多少数据
-            let remaining = data_size - data_counter;
+            let remaining = data_size - _data_counter;
             let chunk_size = std::cmp::min(remaining, request_chunk.len() as u64) as usize;
             
             match stream.write(&request_chunk[..chunk_size]) {
@@ -325,11 +315,11 @@ impl HTTPClient {
                         break;
                     }
                     
-                    data_counter += size as u64;
+                    _data_counter += size as u64;
                     
                     #[cfg(debug_assertions)]
-                    if data_counter % (1024 * 1024) < size as u64 { // 每MB输出一次日志
-                        debug!("Uploaded {} bytes so far", data_counter);
+                    if _data_counter % (1024 * 1024) < size as u64 { // 每MB输出一次日志
+                        debug!("Uploaded {} bytes so far", _data_counter);
                     }
                     
                     counter.increase(size as u64);
@@ -349,21 +339,8 @@ impl HTTPClient {
             }
         }
         
-        // 等待服务器响应
-        let mut buffer = [0; 1024];
-        match stream.read(&mut buffer) {
-            Ok(_size) => {
-                #[cfg(debug_assertions)]
-                debug!("Received server response: {} bytes", _size);
-            }
-            Err(_e) => {
-                #[cfg(debug_assertions)]
-                debug!("Error reading server response: {}", _e);
-            }
-        }
-        
         #[cfg(debug_assertions)]
-        debug!("Upload completed, total bytes: {}", data_counter);
+        debug!("Upload completed, total bytes: {}", _data_counter);
     }
 }
 
@@ -441,9 +418,9 @@ impl Client for HTTPClient {
                 debug!("Upload test completed successfully");
                 true
             }
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Upload test failed with error: {}", e);
+                debug!("Upload test failed: {}", _e);
                 false
             }
         }
@@ -459,9 +436,9 @@ impl Client for HTTPClient {
                 debug!("Download test completed successfully");
                 true
             }
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Download test failed with error: {}", e);
+                debug!("Download test failed with error: {}", _e);
                 false
             }
         }
