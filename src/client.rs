@@ -102,10 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = match get_client(&client_name, download_url, upload_url, force_ipv4, force_ipv6, threads) {
         Some(mut client) => {
             match client.run() {
-                true => {
-                    println!("Test completed successfully");
-                    client.result()
-                },
+                true => client.result(),
                 false => {
                     eprintln!("Error: Failed to run speed test");
                     SpeedTestResult::build(0.0, "失败".to_string(), 0.0, "失败".to_string(), 0.0, 0.0)

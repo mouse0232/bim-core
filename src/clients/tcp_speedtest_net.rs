@@ -219,36 +219,68 @@ impl SpeedtestNetTcpClient {
 impl Client for SpeedtestNetTcpClient {
     fn ping(&mut self) -> bool {
         let mut count = 0;
-        let mut pings = [0u128; 6];
-        let mut ping_min = 10000000;
+        let mut pings = [0u128; 10]; // 增加测量点数量
+        let mut ping_min = u128::MAX;
+        let mut valid_pings = 0;
 
-        while count < 6 {
+        while count < 10 {
             let ping = request_tcp_ping(&self.address);
             if ping > 0 {
                 if ping < ping_min {
                     ping_min = ping
                 }
                 pings[count] = ping;
+                valid_pings += 1;
             }
-            thread::sleep(Duration::from_millis(1000));
+            thread::sleep(Duration::from_millis(500)); // 减少测量间隔时间
             count += 1;
         }
 
-        if pings == [0, 0, 0, 0, 0, 0] {
+        // 如果没有成功的ping，则返回false
+        if valid_pings == 0 {
             self.latency = 0.0;
             self.jitter = 0.0;
             return false;
         }
 
-        let mut jitter_all = 0;
-        for p in pings {
+        // 对ping值进行排序并去除异常值
+        let mut valid_pings_vec: Vec<u128> = pings[..valid_pings].to_vec();
+        valid_pings_vec.sort();
+        
+        // 去除最高和最低的10%作为异常值
+        let remove_count = (valid_pings as f64 * 0.1).ceil() as usize;
+        let start = remove_count.min(valid_pings);
+        let end = valid_pings.saturating_sub(remove_count);
+        
+        // 确保start < end
+        let (start, end) = if start >= end { 
+            (0, valid_pings) 
+        } else { 
+            (start, end) 
+        };
+        
+        // 重新计算最小值（排除异常值后）
+        if let Some(&new_min) = valid_pings_vec[start..end].iter().min() {
+            ping_min = new_min;
+        }
+
+        let mut jitter_all = 0u128;
+        let mut jitter_count = 0;
+        
+        // 计算抖动时也排除异常值
+        for &p in &valid_pings_vec[start..end] {
             if p > 0 {
-                jitter_all += p - ping_min;
+                jitter_all += p.abs_diff(ping_min);
+                jitter_count += 1;
             }
         }
 
-        self.latency = ping_min as f64 / 1_000.0;
-        self.jitter = jitter_all as f64 / 5_000.0;
+        self.latency = ping_min as f64 / 1_000.0; // 转换为毫秒
+        self.jitter = if jitter_count > 0 {
+            jitter_all as f64 / jitter_count as f64 / 1_000.0 // 转换为毫秒
+        } else {
+            0.0
+        };
 
         #[cfg(debug_assertions)]
         debug!("Ping {} ms", self.latency);

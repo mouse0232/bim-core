@@ -169,15 +169,42 @@ impl LoadCounter {
             return 0.0;
         }
         
-        let (c18, t18) = results[17];
-        let (c28, t28) = results[27];
-
-        ((c28 - c18) * 8) as f64 / (t28 - t18) as f64
+        // 添加异常值过滤机制
+        let mut speeds = Vec::new();
+        
+        // 计算多个时间窗口的速度
+        for i in 10..results.len() - 5 {
+            let (c1, t1) = results[i-5];
+            let (c2, t2) = results[i];
+            
+            if t2 > t1 && c2 >= c1 {
+                let speed = ((c2 - c1) * 8) as f64 / (t2 - t1) as f64;
+                speeds.push(speed);
+            }
+        }
+        
+        if speeds.is_empty() {
+            return 0.0;
+        }
+        
+        // 对速度进行排序并去除异常值
+        speeds.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        
+        // 去除前5%和后5%的极值
+        let remove_count = (speeds.len() as f64 * 0.05).ceil() as usize;
+        let start = remove_count.min(speeds.len());
+        let end = speeds.len().saturating_sub(remove_count);
+        
+        if start >= end {
+            return speeds[speeds.len() / 2]; // 返回中位数
+        }
+        
+        // 计算剩余值的平均值
+        let sum: f64 = speeds[start..end].iter().sum();
+        sum / (end - start) as f64
     }
 
     pub fn status(&self) -> String {
-        let mut stop = 0;
-        let mut last = 0;
         let results = self.results.lock().unwrap().to_vec();
 
         #[cfg(debug_assertions)]
@@ -188,14 +215,20 @@ impl LoadCounter {
             return String::from("无数据");
         }
 
-        for (num, _) in results.iter() {
+        // 添加异常值过滤机制
+        let mut stops = 0;
+        let mut last = 0;
+        
+        // 检查数据变化情况，识别断流
+        for (num, _) in results.iter().skip(5) { // 跳过前几个数据点
             if *num == last {
-                stop += 1;
+                stops += 1;
             }
             last = *num;
         }
 
-        if stop < 6 {
+        // 根据停止次数判断状态
+        if stops < 3 {
             String::from("正常")
         } else {
             String::from("断流")
