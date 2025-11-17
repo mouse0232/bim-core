@@ -300,14 +300,12 @@ impl HTTPClient {
                     }
                     
                     #[cfg(debug_assertions)]
-                    if read_count <= 5 {
-                        // 记录前几次读取的详细信息
-                        debug!("Read #{}: {} bytes, buffer sample: {:?}", read_count, size, &buffer[..size.min(50)]);
-                    }
-                    
-                    #[cfg(debug_assertions)]
-                    if read_count % 100 == 0 { // 每100次读取输出一次汇总信息
-                        debug!("Download progress: {} bytes read in {} operations", total_bytes_read, read_count);
+                    if read_count <= 10 {
+                        // 记录前10次读取的详细信息
+                        debug!("Read #{}: {} bytes, total: {} bytes", read_count, size, _data_counter);
+                    } else if read_count % 100 == 0 {
+                        // 每100次读取输出一次摘要
+                        debug!("Read #{}: {} bytes, total: {} bytes", read_count, size, _data_counter);
                     }
                     
                     // 如果data_size为0（未设置Content-Length），设置一个默认值以避免无限循环
