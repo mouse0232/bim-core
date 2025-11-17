@@ -126,7 +126,7 @@ impl HTTPClient {
             url.port_or_known_default().unwrap()
         );
         let path_str = url.path();
-        let host_str = url.host_str().unwrap();
+        let _host_str = url.host_str().unwrap();
 
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
@@ -219,7 +219,7 @@ impl HTTPClient {
             url.port_or_known_default().unwrap()
         );
         let path_str = url.path();
-        let host_str = url.host_str().unwrap();
+        let _host_str = url.host_str().unwrap();
 
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
@@ -242,7 +242,7 @@ impl HTTPClient {
              Content-Length: {}\r\n\
              Connection: close\r\n\r\n",
             path_str,
-            host_str,
+            _host_str,
             data_size
         )
         .into_bytes();

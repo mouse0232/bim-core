@@ -24,12 +24,6 @@ pub struct SpeedtestNetTcpClient {
     download_status: String,
     latency: f64,
     jitter: f64,
-    
-    config: ServerConfig,
-}
-
-struct ServerConfig {
-    server: String,
 }
 
 impl SpeedtestNetTcpClient {
@@ -52,7 +46,6 @@ impl SpeedtestNetTcpClient {
             download_status: r.clone(),
             latency: 0.0,
             jitter: 0.0,
-            config: ServerConfig { server: url.host_str().unwrap().to_string() },
         }))
     }
 
