@@ -191,6 +191,9 @@ impl HTTPClient {
                         if size > 0 {
                             _data_counter = size as u64;
                             counter.increase(_data_counter);
+                            
+                            #[cfg(debug_assertions)]
+                            debug!("Initial download data: {} bytes", _data_counter);
                         } else {
                             #[cfg(debug_assertions)]
                             debug!("Download read returned 0 bytes");
@@ -235,26 +238,24 @@ impl HTTPClient {
                 }
                 Err(_e) => {
                     #[cfg(debug_assertions)]
-                    debug!("Failed to read response: {} - Error: {}", url, _e);
-                    return;
+                    debug!("Download read error: {} - Total bytes: {}", _e, _data_counter);
+                    break;
                 }
             }
         }
         
         #[cfg(debug_assertions)]
-        debug!("Download finished, total bytes: {}", _data_counter);
-        
-        // 确保所有数据都被处理
-        if let Err(_e) = stream.flush() {
-            #[cfg(debug_assertions)]
-            debug!("Error flushing download stream: {}", _e);
-        }
+        debug!("Download finished. Total bytes: {}, Target size: {}", _data_counter, data_size);
     }
 
     fn request_http_upload(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
-        let chunk_count = 50;
-        let data_size = chunk_count * 1024 * 1024 as u64;
-        let path_str = url.path();
+        let data_size = 50 * 1024 * 1024;
+        let path_query = if url.query().is_some() {
+            format!("{}?{}", url.path(), url.query().unwrap())
+        } else {
+            url.path().to_string()
+        };
+        let host_port = format!("{}:{}", url.host_str().unwrap_or(""), url.port_or_known_default().unwrap_or(80));
 
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
@@ -267,35 +268,15 @@ impl HTTPClient {
 
         counter.wait();
 
-        let mut _data_counter: u64 = 0;  // 修复：初始化data_counter
-        let request_chunk = vec![b'O'; 131072]; // 创建一个128KB的缓冲区填充值
-        let host_str = url.host_str().unwrap_or("");
-
         let request_head = format!(
-            "POST {} HTTP/1.1\r\n\
-             Host: {}\r\n\
-             User-Agent: bimc/0.17.1\r\n\
-             Content-Type: application/octet-stream\r\n\
-             Content-Length: {}\r\n\
-             Connection: close\r\n\r\n",
-            path_str,
-            host_str,
-            data_size
-        )
-        .into_bytes();
+            "POST {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: bim/1.0\r\nContent-Length: {}\r\n\r\n",
+            path_query, host_port, data_size
+        );
 
-        #[cfg(debug_assertions)]
-        debug!("Upload request head: {:?}", String::from_utf8_lossy(&request_head));
-
-        #[cfg(debug_assertions)]
-        debug!("Upload target size: {}", data_size);
-
-        match stream.write_all(&request_head) {
+        match stream.write_all(request_head.as_bytes()) {
             Ok(_) => {
-                _data_counter = request_head.len() as u64;
                 #[cfg(debug_assertions)]
-                debug!("Upload request head sent, {} bytes", _data_counter);
-                counter.increase(_data_counter);
+                debug!("Upload request sent");
             }
             Err(_e) => {
                 #[cfg(debug_assertions)]
@@ -304,23 +285,21 @@ impl HTTPClient {
             }
         }
 
+        let mut buffer = [0x42; 1024];
+        let mut _data_counter: u64 = 0;
+        let mut size: usize = 1024;
+
         #[cfg(debug_assertions)]
-        debug!("Starting to upload data");
+        debug!("Starting to send upload data, target size: {}", data_size);
 
         while _data_counter < data_size && !counter.is_end() {
-            // 计算还需要发送多少数据
-            let remaining = data_size - _data_counter;
-            let chunk_size = std::cmp::min(remaining, request_chunk.len() as u64) as usize;
-            
-            match stream.write(&request_chunk[..chunk_size]) {
-                Ok(size) => {
-                    if size == 0 {
-                        // 连接已关闭
-                        #[cfg(debug_assertions)]
-                        debug!("Upload connection closed");
-                        break;
-                    }
-                    
+            if _data_counter + size as u64 > data_size {
+                size = (data_size - _data_counter) as usize;
+                buffer = [0x42; 1024][0..size].try_into().unwrap();
+            }
+
+            match stream.write(&buffer) {
+                Ok(_size) => {
                     _data_counter += size as u64;
                     
                     #[cfg(debug_assertions)]
@@ -333,20 +312,20 @@ impl HTTPClient {
                     // 确保数据被发送
                     if let Err(_e) = stream.flush() {
                         #[cfg(debug_assertions)]
-                        debug!("Error flushing upload stream: {}", _e);
+                        debug!("Error flushing upload stream: {} - Total bytes: {}", _e, _data_counter);
                         break;
                     }
                 }
                 Err(_e) => {
                     #[cfg(debug_assertions)]
-                    debug!("Upload write error: {}", _e);
+                    debug!("Upload write error: {} - Total bytes: {}", _e, _data_counter);
                     break;
                 }
             }
         }
         
         #[cfg(debug_assertions)]
-        debug!("Upload completed, total bytes: {}", _data_counter);
+        debug!("Upload finished. Total bytes: {}, Target size: {}", _data_counter, data_size);
     }
 }
 

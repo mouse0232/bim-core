@@ -177,29 +177,62 @@ impl LoadCounter {
         #[cfg(debug_assertions)]
         debug!("Calculating speed with {} data points", results.len());
         
-        // 确保有足够的数据点来计算速度
-        if results.len() < 20 {
+        // 记录所有数据点用于调试
+        #[cfg(debug_assertions)]
+        for (i, (bytes, time)) in results.iter().enumerate() {
+            debug!("Data point {}: {} bytes at {} microseconds", i, bytes, time);
+        }
+        
+        // 至少需要2个数据点来计算速度
+        if results.len() < 2 {
             #[cfg(debug_assertions)]
             debug!("Not enough data points to calculate speed, returning 0.0");
             return 0.0;
         }
         
-        // 使用最后10个数据点来计算速度，而不是固定的第18和28个点
-        let start_index = if results.len() >= 10 { 
-            results.len() - 10
+        // 使用所有数据点或最后10个数据点来计算速度
+        let (start_index, end_index) = if results.len() >= 10 {
+            // 使用最后10个数据点
+            (results.len() - 10, results.len() - 1)
         } else {
-            0
+            // 使用所有数据点
+            (0, results.len() - 1)
         };
-        
-        let end_index = results.len() - 1;
         
         let (c_start, t_start) = results[start_index];
         let (c_end, t_end) = results[end_index];
-
+        
         #[cfg(debug_assertions)]
-        debug!("Speed calculation: bytes {}->{}, time {}->{}", c_start, c_end, t_start, t_end);
+        debug!("Speed calculation: start={} bytes at {} μs, end={} bytes at {} μs", 
+               c_start, t_start, c_end, t_end);
 
-        ((c_end - c_start) * 8) as f64 / (t_end - t_start) as f64
+        // 检查时间差是否为0，避免除以0
+        if t_end <= t_start {
+            #[cfg(debug_assertions)]
+            debug!("Time difference is zero or negative, returning 0.0");
+            return 0.0;
+        }
+
+        // 检查字节差是否为0
+        if c_end <= c_start {
+            #[cfg(debug_assertions)]
+            debug!("Byte difference is zero or negative, returning 0.0");
+            return 0.0;
+        }
+
+        let byte_diff = c_end - c_start;
+        let time_diff = t_end - t_start;
+        
+        #[cfg(debug_assertions)]
+        debug!("Byte difference: {}, Time difference: {} μs", byte_diff, time_diff);
+
+        // 计算速度: (字节差 * 8) / (时间差 微秒) = Mbps
+        let speed_mbps = (byte_diff * 8) as f64 / time_diff as f64;
+        
+        #[cfg(debug_assertions)]
+        debug!("Calculated speed: {} Mbps", speed_mbps);
+
+        speed_mbps
     }
 
     pub fn status(&self) -> String {
