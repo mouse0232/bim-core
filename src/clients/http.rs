@@ -8,7 +8,7 @@ use log::debug;
 
 use url::Url;
 
-use crate::clients::base::{get_address_with_fallback, make_connection, request_tcp_ping, Client, LoadCounter};
+use crate::clients::base::{get_address_with_fallback, make_connection, Client, LoadCounter};
 use crate::utils::SpeedTestResult;
 
 use std::io::{Read, Write};
@@ -118,17 +118,15 @@ impl HTTPClient {
     }
 
     fn request_http_download(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
-        let chunk_count = 50;
+        let chunk_count = 350;
         let data_size = chunk_count * 1024 * 1024 as u64;
-        let mut data_counter;
-        let mut buffer = [0; 65536];
-
         let host_port = format!(
             "{}:{}",
             url.host_str().unwrap(),
             url.port_or_known_default().unwrap()
         );
         let path_str = url.path();
+        let host_str = url.host_str().unwrap();
 
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
@@ -139,6 +137,9 @@ impl HTTPClient {
         };
 
         counter.wait();
+
+        let mut data_counter: u64 = 0;
+        let mut buffer = [0; 131072];
 
         while !counter.is_end() {
             let now = SystemTime::now()
@@ -167,21 +168,20 @@ impl HTTPClient {
                             debug!("Download Status: {size}");
 
                             if size > 0 {
-                                let count = size as u64;
-                                data_counter = count;
-                                counter.increase(count);
+                                data_counter = size as u64;
+                                counter.increase(data_counter);
                             } else {
                                 break;
                             }
                         }
-                        Err(_e) => {
+                        Err(_) => {
                             #[cfg(debug_assertions)]
                             debug!("Download read error");
                             break;
                         }
                     }
                 }
-                Err(_e) => {
+                Err(_) => {
                     #[cfg(debug_assertions)]
                     debug!("Download write error");
                     break;
@@ -191,14 +191,19 @@ impl HTTPClient {
             while data_counter < data_size && !counter.is_end() {
                 match stream.read(&mut buffer) {
                     Ok(size) => {
-                        let count = size as u64;
-                        data_counter += count;
-                        counter.increase(count);
+                        let _count = size as u64;
+                        data_counter += _count;
+                        counter.increase(_count);
+
+                        if size == 0 {
+                            #[cfg(debug_assertions)]
+                            debug!("Download Error: Read failed");
+                            break;
+                        }
                     }
                     Err(_e) => {
-                        #[cfg(debug_assertions)]
-                        debug!("Download read error");
-                        break;
+                        log::debug!("Failed to read response: {}", url);
+                        return;
                     }
                 }
             }
@@ -208,8 +213,6 @@ impl HTTPClient {
     fn request_http_upload(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
         let chunk_count = 50;
         let data_size = chunk_count * 1024 * 1024 as u64;
-        let mut data_counter: u64 = 0;
-
         let host_port = format!(
             "{}:{}",
             url.host_str().unwrap(),
@@ -229,20 +232,47 @@ impl HTTPClient {
         counter.wait();
 
         let mut data_counter: u64 = 0;
-        let mut buffer = [0; 131072];
+        let request_chunk = vec![b'O'; 131072]; // 创建一个128KB的缓冲区填充值
 
-        while !counter.is_end() {
-            match stream.write(&buffer) {
+        let request_head = format!(
+            "POST {} HTTP/1.1\r\n\
+             Host: {}\r\n\
+             User-Agent: bimc/0.17.1\r\n\
+             Content-Type: application/octet-stream\r\n\
+             Content-Length: {}\r\n\
+             Connection: close\r\n\r\n",
+            path_str,
+            host_str,
+            data_size
+        )
+        .into_bytes();
+
+        match stream.write_all(&request_head) {
+            Ok(_) => {
+                let length = request_head.len() as u64;
+                data_counter = length;
+            }
+            Err(_e) => {
+                #[cfg(debug_assertions)]
+                debug!("Upload write error");
+                return;
+            }
+        }
+
+        while data_counter < data_size && !counter.is_end() {
+            match stream.write(&request_chunk) {
                 Ok(size) => {
-                    let count = size as u64;
                     data_counter += size as u64;
-                    counter.increase(count);
-
+                    
                     if size == 0 {
+                        #[cfg(debug_assertions)]
+                        debug!("Upload Error: Write failed");
                         break;
                     }
                 }
-                Err(_) => {
+                Err(_e) => {
+                    #[cfg(debug_assertions)]
+                    debug!("Upload write error");
                     break;
                 }
             }
@@ -257,13 +287,12 @@ impl Client for HTTPClient {
         let mut ping_min = 10000000;
 
         while count < 6 {
-            let ping = request_tcp_ping(&self.address);
-            if ping > 0 {
-                if ping < ping_min {
-                    ping_min = ping
-                }
-                pings[count] = ping;
+            let start = Instant::now();
+            let ping = start.elapsed().as_micros();
+            if ping < ping_min {
+                ping_min = ping;
             }
+            pings[count] = ping;
             thread::sleep(Duration::from_millis(1000));
             count += 1;
         }
@@ -282,7 +311,7 @@ impl Client for HTTPClient {
         }
 
         self.latency = ping_min as f64 / 1_000.0;
-        self.jitter = jitter_all as f64 / 5_000.0;
+        self.jitter = jitter_all as f64 / 6.0 / 1_000.0;
 
         #[cfg(debug_assertions)]
         debug!("Ping {} ms", self.latency);
@@ -296,9 +325,9 @@ impl Client for HTTPClient {
     fn download(&mut self) -> bool {
         match self.run_load(1) {
             Ok(_) => true,
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Download error: {}", e);
+                debug!("Download error: {}", _e);
                 false
             }
         }
@@ -307,9 +336,9 @@ impl Client for HTTPClient {
     fn upload(&mut self) -> bool {
         match self.run_load(0) {
             Ok(_) => true,
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Upload error: {}", e);
+                debug!("Upload error: {}", _e);
                 false
             }
         }
