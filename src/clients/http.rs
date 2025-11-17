@@ -132,15 +132,15 @@ impl HTTPClient {
 
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
-            Err(e) => {
+            Err(_e) => {
                 log::debug!("Failed to connect to proxy: {}", url);
-                None
+                return;
             }
         };
 
         counter.wait();
 
-        'request: while !counter.is_end() {
+        while !counter.is_end() {
             let now = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
@@ -224,11 +224,37 @@ impl HTTPClient {
             Ok(s) => s,
             Err(_e) => {
                 log::debug!("Failed to connect to proxy: {}", url);
-                None
+                return;
             }
         };
 
         counter.wait();
+
+        let mut data_counter = 0;
+        let request_head = format!(
+            "POST {} HTTP/1.1\r\n\
+             Host: {}\r\n\
+             User-Agent: bimc/0.17.1\r\n\
+             Content-Type: application/octet-stream\r\n\
+             Content-Length: {}\r\n\
+             Connection: close\r\n\r\n",
+            path_str,
+            host_str,
+            data_size
+        )
+        .into_bytes();
+
+        match stream.write_all(&request_head) {
+            Ok(_) => {
+                let length = request_head.len() as u64;
+                data_counter = length;
+            }
+            Err(_e) => {
+                #[cfg(debug_assertions)]
+                debug!("Upload write error");
+                return;
+            }
+        }
 
         'request: while !counter.is_end() {
             let now = SystemTime::now()
@@ -254,7 +280,7 @@ impl HTTPClient {
                 }
                 Err(_e) => {
                     log::debug!("Failed to send request: {}", url);
-                    None
+                    return;
                 }
             }
 
@@ -263,11 +289,17 @@ impl HTTPClient {
                     Ok(size) => {
                         let count = size as u64;
                         data_counter += size as u64;
-                        counter.increase(count);
+                        
+                        if size == 0 {
+                            #[cfg(debug_assertions)]
+                            debug!("Upload Error: Write failed");
+                            break;
+                        }
                     }
                     Err(_e) => {
-                        log::debug!("Failed to read response: {}", url);
-                        None
+                        #[cfg(debug_assertions)]
+                        debug!("Upload write error");
+                        break;
                     }
                 }
             }

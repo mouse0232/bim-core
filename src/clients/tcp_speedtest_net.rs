@@ -24,6 +24,12 @@ pub struct SpeedtestNetTcpClient {
     download_status: String,
     latency: f64,
     jitter: f64,
+    
+    config: ServerConfig,
+}
+
+struct ServerConfig {
+    server: String,
 }
 
 impl SpeedtestNetTcpClient {
@@ -46,6 +52,7 @@ impl SpeedtestNetTcpClient {
             download_status: r.clone(),
             latency: 0.0,
             jitter: 0.0,
+            config: ServerConfig { server: url.host_str().unwrap().to_string() },
         }))
     }
 
@@ -109,8 +116,8 @@ impl SpeedtestNetTcpClient {
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
             Err(_e) => {
-                log::debug!("Failed to connect to server: {}", self.config.server);
-                None
+                log::debug!("Failed to connect to server: {}", address);
+                return;
             }
         };
 
@@ -137,8 +144,8 @@ impl SpeedtestNetTcpClient {
                         counter.increase(count);
                     }
                     Err(_e) => {
-                        log::debug!("Failed to read from server: {}", self.config.server);
-                        None
+                        log::debug!("Failed to read from server: {}", address);
+                        return;
                     }
                 }
             }
@@ -262,9 +269,9 @@ impl Client for SpeedtestNetTcpClient {
     fn download(&mut self) -> bool {
         match self.run_load(1) {
             Ok(_) => true,
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Download error: {}", e);
+                debug!("Download error: {}", _e);
                 false
             }
         }
@@ -273,9 +280,9 @@ impl Client for SpeedtestNetTcpClient {
     fn upload(&mut self) -> bool {
         match self.run_load(0) {
             Ok(_) => true,
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Upload error: {}", e);
+                debug!("Upload error: {}", _e);
                 false
             }
         }
