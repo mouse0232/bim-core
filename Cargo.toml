@@ -1,0 +1,43 @@
+[package]
+name = "bim-core"
+version = "0.17.1"
+edition = "2021"
+description = "Client core for bench.im."
+license = "GPL-2.0-only"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "bim"
+path = "src/server.rs"
+
+[[bin]]
+name = "bimc"
+path = "src/client.rs"
+
+[dependencies]
+url = "2"
+getopts = "0.2"
+webpki-roots = "0.26"
+rustls = "0.23"
+tiny_http = "0.12"
+unicode-width = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+
+log = "0.4"
+env_logger = "0.10"
+
+# Async support
+tokio = { version = "1.0", features = ["full"] }
+tokio-rustls = "0.26"
+tokio-util = { version = "0.7", features = ["codec"] }
+
+[profile.release]
+opt-level = 'z'
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[features]
+async = []
