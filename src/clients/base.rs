@@ -135,7 +135,7 @@ pub struct LoadCounter {
     /// 原子布尔值，标记测试是否结束
     ender: std::sync::atomic::AtomicBool,
     /// 结果存储，使用向量而非RwLock包装的向量
-    results: std::sync::Mutex<Vec<(u64, u128)>>,
+    pub results: std::sync::Mutex<Vec<(u64, u128)>>,
 }
 
 impl LoadCounter {
