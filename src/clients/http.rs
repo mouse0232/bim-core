@@ -138,7 +138,7 @@ impl HTTPClient {
 
         counter.wait();
 
-        let mut data_counter: u64 = 0;
+        let mut data_counter: u64;
         let mut buffer = [0; 131072];
 
         while !counter.is_end() {
@@ -231,7 +231,7 @@ impl HTTPClient {
 
         counter.wait();
 
-        let mut data_counter: u64 = 0;
+        let mut data_counter: u64;
         let request_chunk = vec![b'O'; 131072]; // 创建一个128KB的缓冲区填充值
 
         let request_head = format!(
@@ -249,8 +249,7 @@ impl HTTPClient {
 
         match stream.write_all(&request_head) {
             Ok(_) => {
-                let length = request_head.len() as u64;
-                data_counter = length;
+                data_counter = request_head.len() as u64;
             }
             Err(_e) => {
                 #[cfg(debug_assertions)]
