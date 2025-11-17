@@ -183,48 +183,57 @@ impl HTTPClient {
                 #[cfg(debug_assertions)]
                 debug!("Download request sent: {}", String::from_utf8_lossy(&request_head));
                 
-                match stream.read(&mut buffer) {
-                    Ok(size) => {
-                        #[cfg(debug_assertions)]
-                        debug!("Download initial read: {} bytes", size);
-
-                        if size > 0 {
-                            // 检查是否是HTTP响应
-                            let response_str = String::from_utf8_lossy(&buffer[..size.min(100)]);
-                            #[cfg(debug_assertions)]
-                            debug!("Response start: {:?}", response_str);
-                            
-                            // 检查HTTP状态码
-                            if response_str.starts_with("HTTP/") {
-                                if let Some(status_line_end) = response_str.find("\r\n") {
-                                    let status_line = &response_str[..status_line_end];
-                                    #[cfg(debug_assertions)]
-                                    debug!("HTTP Status line: {}", status_line);
-                                    
-                                    // 检查是否是成功的状态码(2xx)
-                                    if !status_line.contains("200") && !status_line.contains("206") {
-                                        #[cfg(debug_assertions)]
-                                        debug!("Non-success HTTP status code detected");
-                                    }
-                                }
+                // 读取并解析HTTP响应头
+                let mut headers_buf = Vec::new();
+                let mut header_finished = false;
+                let mut read_buf = [0u8; 1];
+                
+                while !header_finished && !counter.is_end() {
+                    match stream.read(&mut read_buf) {
+                        Ok(1) => {
+                            headers_buf.push(read_buf[0]);
+                            // 检查是否到达响应头结尾(\r\n\r\n)
+                            if headers_buf.len() >= 4 && 
+                               headers_buf[headers_buf.len()-4] == b'\r' &&
+                               headers_buf[headers_buf.len()-3] == b'\n' &&
+                               headers_buf[headers_buf.len()-2] == b'\r' &&
+                               headers_buf[headers_buf.len()-1] == b'\n' {
+                                header_finished = true;
                             }
-
-                            _data_counter = size as u64;
-                            counter.increase(_data_counter);
-                            
+                        }
+                        Ok(0) => {
+                            // 连接已关闭
                             #[cfg(debug_assertions)]
-                            debug!("Initial download data: {} bytes, buffer content: {:?}", _data_counter, &buffer[..size.min(50)]);
-                        } else {
+                            debug!("Connection closed while reading headers");
+                            return;
+                        }
+                        Ok(_) => {
+                            // 不应该发生的情况
                             #[cfg(debug_assertions)]
-                            debug!("Download read returned 0 bytes");
+                            debug!("Unexpected read size while reading headers");
+                            return;
+                        }
+                        Err(_e) => {
+                            #[cfg(debug_assertions)]
+                            debug!("Failed to read response headers: {} - Error: {}", url, _e);
                             return;
                         }
                     }
-                    Err(_e) => {
-                        #[cfg(debug_assertions)]
-                        debug!("Failed to read response: {} - Error: {}", url, _e);
-                        return;
-                    }
+                }
+                
+                // 解析响应头
+                let headers_str = String::from_utf8_lossy(&headers_buf);
+                #[cfg(debug_assertions)]
+                debug!("HTTP Response headers: {}", headers_str);
+                
+                // 检查HTTP状态码
+                let status_line = headers_str.lines().next().unwrap_or("");
+                #[cfg(debug_assertions)]
+                debug!("HTTP Status line: {}", status_line);
+                
+                if !status_line.contains("200") && !status_line.contains("206") {
+                    #[cfg(debug_assertions)]
+                    debug!("Non-success HTTP status code detected");
                 }
             }
             Err(_e) => {
