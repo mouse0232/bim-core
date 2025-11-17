@@ -9,7 +9,8 @@ fn print_usage(program: &str, opts: Options) {
 }
 
 fn get_server(server_name: &str, address: &str) -> Option<Box<dyn Server>> {
-    match server_name {
+    println!("Trying to create server: {}", server_name); // 调试信息
+    match server_name.to_lowercase().as_str() {
         "http" => HTTPServer::build(address.to_string(), "test".to_string()),
         _ => None,
     }
@@ -45,7 +46,10 @@ fn main() {
     #[cfg(debug_assertions)]
     env_logger::init();
 
+    // 简化服务器名称处理逻辑
     let server_name = matches.opt_str("s").unwrap_or("http".to_string());
+    println!("Server name from args: {}", server_name); // 调试信息
+    
     let mut server = match get_server(&server_name, &address) {
         Some(server) => server,
         None => {
