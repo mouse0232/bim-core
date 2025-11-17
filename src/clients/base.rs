@@ -242,6 +242,13 @@ impl LoadCounter {
             debug!("Calculated speed is invalid (NaN or negative), returning 0.0");
             return 0.0;
         }
+        
+        // 对于非常小的速度值，返回一个最小的非零值以表明有数据传输
+        if speed_mbps > 0.0 && speed_mbps < 0.001 {
+            #[cfg(debug_assertions)]
+            debug!("Calculated speed is very small, returning minimum displayable value");
+            return 0.001; // 返回最小显示值0.001 Mbps而不是0.0
+        }
 
         speed_mbps
     }
