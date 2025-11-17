@@ -174,15 +174,32 @@ impl LoadCounter {
     pub fn speed(&self) -> f64 {
         let results = self.results.lock().unwrap();
         
+        #[cfg(debug_assertions)]
+        debug!("Calculating speed with {} data points", results.len());
+        
         // 确保有足够的数据点来计算速度
-        if results.len() < 28 {
+        if results.len() < 20 {
+            #[cfg(debug_assertions)]
+            debug!("Not enough data points to calculate speed, returning 0.0");
             return 0.0;
         }
         
-        let (c18, t18) = results[17];
-        let (c28, t28) = results[27];
+        // 使用最后10个数据点来计算速度，而不是固定的第18和28个点
+        let start_index = if results.len() >= 10 { 
+            results.len() - 10
+        } else {
+            0
+        };
+        
+        let end_index = results.len() - 1;
+        
+        let (c_start, t_start) = results[start_index];
+        let (c_end, t_end) = results[end_index];
 
-        ((c28 - c18) * 8) as f64 / (t28 - t18) as f64
+        #[cfg(debug_assertions)]
+        debug!("Speed calculation: bytes {}->{}, time {}->{}", c_start, c_end, t_start, t_end);
+
+        ((c_end - c_start) * 8) as f64 / (t_end - t_start) as f64
     }
 
     pub fn status(&self) -> String {

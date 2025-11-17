@@ -123,7 +123,13 @@ impl HTTPClient {
 
         // 添加更多日志来检查结果
         #[cfg(debug_assertions)]
-        debug!("Checking results for {}", if load == 0 { "upload" } else { "download" });
+        {
+            let results = counter.results.lock().unwrap();
+            debug!("Collected {} results for {}", results.len(), if load == 0 { "upload" } else { "download" });
+            for (i, (bytes, time)) in results.iter().enumerate() {
+                debug!("Result {}: {} bytes at {} microseconds", i, bytes, time);
+            }
+        }
 
         match load {
             0 => {
