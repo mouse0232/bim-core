@@ -150,7 +150,6 @@ impl HTTPClient {
     }
 
     fn request_http_download(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
-        let data_size = 50 * 1024 * 1024;
         let path_query = if url.query().is_some() {
             format!("{}?{}", url.path(), url.query().unwrap())
         } else {
@@ -171,6 +170,7 @@ impl HTTPClient {
 
         let mut buffer = [0; 1024];
         let mut _data_counter: u64 = 0;
+        let mut data_size: u64 = 50 * 1024 * 1024; // 默认大小
 
         let request_head = format!(
             "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: bim/1.0\r\n\r\n",
@@ -234,6 +234,21 @@ impl HTTPClient {
                 if !status_line.contains("200") && !status_line.contains("206") {
                     #[cfg(debug_assertions)]
                     debug!("Non-success HTTP status code detected");
+                    return;
+                }
+
+                // 解析Content-Length头部
+                for line in headers_str.lines().skip(1) {
+                    if line.is_empty() {
+                        break;
+                    }
+                    if line.starts_with("Content-Length:") {
+                        if let Ok(len) = line["Content-Length:".len()..].trim().parse::<u64>() {
+                            data_size = len;
+                            #[cfg(debug_assertions)]
+                            debug!("Content-Length header found: {}", data_size);
+                        }
+                    }
                 }
             }
             Err(_e) => {
@@ -247,7 +262,7 @@ impl HTTPClient {
         debug!("Starting to read download data, target size: {}", data_size);
 
         let mut _read_count = 0;
-        while _data_counter < data_size && !counter.is_end() {
+        while (_data_counter < data_size || data_size == 0) && !counter.is_end() {
             match stream.read(&mut buffer) {
                 Ok(size) => {
                     _read_count += 1;
