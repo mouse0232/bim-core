@@ -115,10 +115,10 @@ impl HTTPClient {
         #[cfg(debug_assertions)]
         debug!("Load test ended, collecting results");
 
-        for (i, task) in tasks.into_iter().enumerate() {
+        for (_i, task) in tasks.into_iter().enumerate() {
             if let Err(_e) = task.join() {
                 #[cfg(debug_assertions)]
-                debug!("Task {} join error", i);
+                debug!("Upload thread panicked");
             }
         }
 
@@ -153,7 +153,6 @@ impl HTTPClient {
             url.port_or_known_default().unwrap()
         );
         let path_str = url.path();
-        let _host_str = url.host_str().unwrap();
 
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -166,9 +165,9 @@ impl HTTPClient {
 
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Failed to connect to proxy: {} - Error: {}", url, e);
+                debug!("Failed to connect to proxy: {} - Error: {}", url, _e);
                 return;
             }
         };
@@ -203,16 +202,16 @@ impl HTTPClient {
                             return;
                         }
                     }
-                    Err(e) => {
+                    Err(_e) => {
                         #[cfg(debug_assertions)]
-                        debug!("Download read error: {}", e);
+                        debug!("Failed to read response: {} - Error: {}", url, _e);
                         return;
                     }
                 }
             }
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Download write error: {}", e);
+                debug!("Download write error: {}", _e);
                 return;
             }
         }
@@ -251,22 +250,16 @@ impl HTTPClient {
         debug!("Download finished, total bytes: {}", data_counter);
         
         // 确保所有数据都被处理
-        if let Err(e) = stream.flush() {
+        if let Err(_e) = stream.flush() {
             #[cfg(debug_assertions)]
-            debug!("Error flushing download stream: {}", e);
+            debug!("Error flushing download stream: {}", _e);
         }
     }
 
     fn request_http_upload(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
         let chunk_count = 50;
         let data_size = chunk_count * 1024 * 1024 as u64;
-        let _host_port = format!(
-            "{}:{}",
-            url.host_str().unwrap(),
-            url.port_or_known_default().unwrap()
-        );
         let path_str = url.path();
-        let _host_str = url.host_str().unwrap();
 
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
@@ -281,6 +274,7 @@ impl HTTPClient {
 
         let mut data_counter: u64;  // 修复：移除初始化值
         let request_chunk = vec![b'O'; 131072]; // 创建一个128KB的缓冲区填充值
+        let _host_str = url.host_str().unwrap_or("");
 
         let request_head = format!(
             "POST {} HTTP/1.1\r\n\
@@ -341,15 +335,15 @@ impl HTTPClient {
                     counter.increase(size as u64);
 
                     // 确保数据被发送
-                    if let Err(e) = stream.flush() {
+                    if let Err(_e) = stream.flush() {
                         #[cfg(debug_assertions)]
-                        debug!("Error flushing upload stream: {}", e);
+                        debug!("Error flushing upload stream: {}", _e);
                         break;
                     }
                 }
-                Err(e) => {
+                Err(_e) => {
                     #[cfg(debug_assertions)]
-                    debug!("Upload write error: {}", e);
+                    debug!("Upload write error: {}", _e);
                     break;
                 }
             }
@@ -358,13 +352,13 @@ impl HTTPClient {
         // 等待服务器响应
         let mut buffer = [0; 1024];
         match stream.read(&mut buffer) {
-            Ok(size) => {
+            Ok(_size) => {
                 #[cfg(debug_assertions)]
-                debug!("Received server response: {} bytes", size);
+                debug!("Received server response: {} bytes", _size);
             }
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Error reading server response: {}", e);
+                debug!("Error reading server response: {}", _e);
             }
         }
         
@@ -392,9 +386,9 @@ impl Client for HTTPClient {
         let mut min = u128::MAX;
         let mut times = Vec::new();
 
-        for i in 0..10 {
+        for _i in 0..10 {
             #[cfg(debug_assertions)]
-            debug!("Ping attempt {}", i);
+            debug!("Ping attempt {}", _i);
             
             let r = crate::clients::base::request_tcp_ping(&self.address);
             

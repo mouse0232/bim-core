@@ -95,14 +95,17 @@ pub fn make_connection(address: &SocketAddr, url: &Url) -> Result<Box<dyn Generi
 
                 return Ok(Box::new(tls));
             }
-            Err(e) => {
+            Err(_e) => {
                 #[cfg(debug_assertions)]
-                debug!("Connection attempt failed: {}", e);
+                debug!("Failed to connect, retries left: {}", retry);
+                
+                retry -= 1;
+                if retry == 0 {
+                    return Err("无法建立TCP连接".into());
+                }
+                thread::sleep(Duration::from_secs(1));
             }
         }
-
-        retry -= 1;
-        thread::sleep(Duration::from_millis(100));
     }
     
     Err(String::from("连接失败"))

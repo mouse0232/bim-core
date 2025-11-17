@@ -60,9 +60,9 @@ impl Server for HTTPServer {
                         #[cfg(debug_assertions)]
                         debug!("Handling client in spawned thread");
                         
-                        if let Err(e) = handle_client(stream, n, nj) {
+                        if let Err(_e) = handle_client(stream, n, nj) {
                             #[cfg(debug_assertions)]
-                            debug!("Error handling client: {}", e);
+                            debug!("Error handling client: {}", _e);
                         }
                         
                         #[cfg(debug_assertions)]
@@ -203,20 +203,20 @@ fn handle_client(mut stream: TcpStream, name: String, name_just: String) -> Resu
             #[cfg(debug_assertions)]
             debug!("Sending {} chunks of data", chunks);
             
-            let mut sent_bytes = 0;
-            for i in 0..chunks {
+            let mut _sent_bytes = 0;
+            for _i in 0..chunks {
                 if let Err(_e) = stream.write_all(&chunk) {
                     #[cfg(debug_assertions)]
-                    debug!("Error sending download data at chunk {}: {}", i, _e);
+                    debug!("Error sending download data at chunk {}: {}", _i, _e);
                     break;
                 }
                 
-                sent_bytes += chunk.len();
+                _sent_bytes += chunk.len();
                 
                 // 每发送1MB数据输出一次日志
                 #[cfg(debug_assertions)]
-                if sent_bytes % (1024 * 1024) == 0 {
-                    debug!("Sent {} MB of download data", sent_bytes / (1024 * 1024));
+                if _sent_bytes % (1024 * 1024) == 0 {
+                    debug!("Sent {} MB of download data", _sent_bytes / (1024 * 1024));
                 }
                 
                 // 确保数据被刷新到网络
@@ -228,7 +228,7 @@ fn handle_client(mut stream: TcpStream, name: String, name_just: String) -> Resu
             }
             
             #[cfg(debug_assertions)]
-            debug!("Download completed, total sent bytes: {}", sent_bytes);
+            debug!("Download completed, total sent bytes: {}", _sent_bytes);
         }
         ["upload"] => {
             #[cfg(debug_assertions)]
