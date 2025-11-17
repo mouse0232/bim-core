@@ -171,20 +171,20 @@ impl HTTPClient {
                                 data_counter = count;
                                 counter.increase(count);
                             } else {
-                                break 'request;
+                                break;
                             }
                         }
                         Err(_e) => {
                             #[cfg(debug_assertions)]
                             debug!("Download read error");
-                            break 'request;
+                            break;
                         }
                     }
                 }
                 Err(_e) => {
                     #[cfg(debug_assertions)]
                     debug!("Download write error");
-                    break 'request;
+                    break;
                 }
             }
 
@@ -198,7 +198,7 @@ impl HTTPClient {
                     Err(_e) => {
                         #[cfg(debug_assertions)]
                         debug!("Download read error");
-                        break 'request;
+                        break;
                     }
                 }
             }
@@ -208,17 +208,15 @@ impl HTTPClient {
     fn request_http_upload(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
         let chunk_count = 50;
         let data_size = chunk_count * 1024 * 1024 as u64;
-        let mut data_counter;
+        let mut data_counter: u64 = 0;
 
         let host_port = format!(
             "{}:{}",
             url.host_str().unwrap(),
             url.port_or_known_default().unwrap()
         );
-        let url_path = url.path();
-        let request_chunk = "0123456789AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz-="
-            .repeat(1024)
-            .into_bytes();
+        let path_str = url.path();
+        let host_str = url.host_str().unwrap();
 
         let mut stream = match make_connection(&address, &url) {
             Ok(s) => s,
@@ -230,77 +228,22 @@ impl HTTPClient {
 
         counter.wait();
 
-        let mut data_counter = 0;
-        let request_head = format!(
-            "POST {} HTTP/1.1\r\n\
-             Host: {}\r\n\
-             User-Agent: bimc/0.17.1\r\n\
-             Content-Type: application/octet-stream\r\n\
-             Content-Length: {}\r\n\
-             Connection: close\r\n\r\n",
-            path_str,
-            host_str,
-            data_size
-        )
-        .into_bytes();
+        let mut data_counter: u64 = 0;
+        let mut buffer = [0; 131072];
 
-        match stream.write_all(&request_head) {
-            Ok(_) => {
-                let length = request_head.len() as u64;
-                data_counter = length;
-            }
-            Err(_e) => {
-                #[cfg(debug_assertions)]
-                debug!("Upload write error");
-                return;
-            }
-        }
+        while !counter.is_end() {
+            match stream.write(&buffer) {
+                Ok(size) => {
+                    let count = size as u64;
+                    data_counter += size as u64;
+                    counter.increase(count);
 
-        'request: while !counter.is_end() {
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis();
-            let path_query = format!("{}?r={}", url_path, now);
-
-            #[cfg(debug_assertions)]
-            debug!("Upload {path_query} size {data_size}");
-
-            let request_head = format!(
-                "POST {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: bim/1.0\r\nContent-Length: {}\r\n\r\n",
-                path_query, host_port, data_size
-            )
-            .into_bytes();
-
-            match stream.write_all(&request_head) {
-                Ok(_) => {
-                    let length = request_head.len() as u64;
-                    data_counter = length;
-                    counter.increase(length);
-                }
-                Err(_e) => {
-                    log::debug!("Failed to send request: {}", url);
-                    return;
-                }
-            }
-
-            while data_counter < data_size && !counter.is_end() {
-                match stream.write(&request_chunk) {
-                    Ok(size) => {
-                        let count = size as u64;
-                        data_counter += size as u64;
-                        
-                        if size == 0 {
-                            #[cfg(debug_assertions)]
-                            debug!("Upload Error: Write failed");
-                            break;
-                        }
-                    }
-                    Err(_e) => {
-                        #[cfg(debug_assertions)]
-                        debug!("Upload write error");
+                    if size == 0 {
                         break;
                     }
+                }
+                Err(_) => {
+                    break;
                 }
             }
         }
