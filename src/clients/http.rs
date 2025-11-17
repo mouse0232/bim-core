@@ -213,7 +213,7 @@ impl HTTPClient {
     fn request_http_upload(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
         let chunk_count = 50;
         let data_size = chunk_count * 1024 * 1024 as u64;
-        let host_port = format!(
+        let _host_port = format!(
             "{}:{}",
             url.host_str().unwrap(),
             url.port_or_known_default().unwrap()
