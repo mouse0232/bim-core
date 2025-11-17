@@ -262,10 +262,18 @@ impl HTTPClient {
         debug!("Starting to read download data, target size: {}", data_size);
 
         let mut _read_count = 0;
+        #[cfg(debug_assertions)]
+        let mut total_bytes_read = 0u64;
+        
         while (_data_counter < data_size || data_size == 0) && !counter.is_end() {
             match stream.read(&mut buffer) {
                 Ok(size) => {
                     _read_count += 1;
+                    #[cfg(debug_assertions)]
+                    {
+                        total_bytes_read += size as u64;
+                    }
+                    
                     if size == 0 {
                         // 连接已关闭，传输完成
                         #[cfg(debug_assertions)]
@@ -286,6 +294,11 @@ impl HTTPClient {
                     if _read_count <= 5 {
                         // 记录前几次读取的详细信息
                         debug!("Read #{}: {} bytes, buffer sample: {:?}", _read_count, size, &buffer[..size.min(50)]);
+                    }
+                    
+                    #[cfg(debug_assertions)]
+                    if _read_count % 100 == 0 { // 每100次读取输出一次汇总信息
+                        debug!("Download progress: {} bytes read in {} operations", total_bytes_read, _read_count);
                     }
                 }
                 Err(_e) => {
