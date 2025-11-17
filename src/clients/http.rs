@@ -245,14 +245,14 @@ impl HTTPClient {
                     // 处理可能的大小写变化和额外空格
                     let trimmed_line = line.trim();
                     if trimmed_line.to_lowercase().starts_with("content-length:") {
-                        if let Ok(len) = trimmed_line["Content-Length:".len()..].trim().parse::<u64>() {
+                        let value_part = trimmed_line.split(':').nth(1).unwrap_or("0").trim();
+                        if let Ok(len) = value_part.parse::<u64>() {
                             data_size = len;
                             #[cfg(debug_assertions)]
-                            debug!("Content-Length header found: {}", data_size);
-                        } else if let Ok(len) = trimmed_line.split(':').nth(1).unwrap_or("0").trim().parse::<u64>() {
-                            data_size = len;
+                            debug!("Content-Length header found: {} from value '{}'", data_size, value_part);
+                        } else {
                             #[cfg(debug_assertions)]
-                            debug!("Content-Length header found (alternative parse): {}", data_size);
+                            debug!("Failed to parse Content-Length value: '{}'", value_part);
                         }
                     }
                 }
