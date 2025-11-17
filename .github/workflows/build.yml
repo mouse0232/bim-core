@@ -57,7 +57,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bim
+          name: bim-linux-${{ matrix.target }}
           path: build/release/*
 
   build-windows:
@@ -90,7 +90,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bim
+          name: bim-windows
           path: build/release/*
     
   build-macos:
@@ -123,5 +123,5 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bim
+          name: bim-macos
           path: build/release/*
