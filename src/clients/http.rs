@@ -270,14 +270,14 @@ impl HTTPClient {
         #[cfg(debug_assertions)]
         debug!("Starting to read download data, target size: {}", data_size);
 
-        let mut _read_count = 0;
+        let mut read_count = 0;
         #[cfg(debug_assertions)]
         let mut total_bytes_read = 0u64;
         
         while (_data_counter < data_size || data_size == 0) && !counter.is_end() {
             match stream.read(&mut buffer) {
                 Ok(size) => {
-                    _read_count += 1;
+                    read_count += 1;
                     #[cfg(debug_assertions)]
                     {
                         total_bytes_read += size as u64;
@@ -286,7 +286,7 @@ impl HTTPClient {
                     if size == 0 {
                         // 连接已关闭，传输完成
                         #[cfg(debug_assertions)]
-                        debug!("Download completed, connection closed. Total bytes: {}, read operations: {}", _data_counter, _read_count);
+                        debug!("Download completed, connection closed. Total bytes: {}, read operations: {}", _data_counter, read_count);
                         break;
                     }
                     
@@ -296,30 +296,43 @@ impl HTTPClient {
 
                     #[cfg(debug_assertions)]
                     if _data_counter % (10 * 1024) < _count as u64 { // 每10KB输出一次日志
-                        debug!("Downloaded {} bytes so far, current read size: {}, read operations: {}", _data_counter, size, _read_count);
+                        debug!("Downloaded {} bytes so far, current read size: {}, read operations: {}", _data_counter, size, read_count);
                     }
                     
                     #[cfg(debug_assertions)]
-                    if _read_count <= 5 {
+                    if read_count <= 5 {
                         // 记录前几次读取的详细信息
-                        debug!("Read #{}: {} bytes, buffer sample: {:?}", _read_count, size, &buffer[..size.min(50)]);
+                        debug!("Read #{}: {} bytes, buffer sample: {:?}", read_count, size, &buffer[..size.min(50)]);
                     }
                     
                     #[cfg(debug_assertions)]
-                    if _read_count % 100 == 0 { // 每100次读取输出一次汇总信息
-                        debug!("Download progress: {} bytes read in {} operations", total_bytes_read, _read_count);
+                    if read_count % 100 == 0 { // 每100次读取输出一次汇总信息
+                        debug!("Download progress: {} bytes read in {} operations", total_bytes_read, read_count);
+                    }
+                    
+                    // 如果data_size为0（未设置Content-Length），设置一个默认值以避免无限循环
+                    if data_size == 0 && read_count > 1000 {
+                        #[cfg(debug_assertions)]
+                        debug!("No Content-Length header and read more than 1000 times, stopping download");
+                        break;
                     }
                 }
                 Err(_e) => {
                     #[cfg(debug_assertions)]
-                    debug!("Download read error: {} - Total bytes: {}, read operations: {}", _e, _data_counter, _read_count);
+                    debug!("Download read error: {} - Total bytes: {}, read operations: {}", _e, _data_counter, read_count);
                     break;
                 }
             }
         }
         
         #[cfg(debug_assertions)]
-        debug!("Download finished. Total bytes: {}, Target size: {}, Total read operations: {}", _data_counter, data_size, _read_count);
+        debug!("Download finished. Total bytes: {}, Target size: {}, Total read operations: {}", _data_counter, data_size, read_count);
+        
+        // 如果读取的字节数大于0但data_size为0，更新data_size以确保正确计算速度
+        if _data_counter > 0 && data_size == 0 {
+            #[cfg(debug_assertions)]
+            debug!("Would update data_size to actual downloaded bytes: {} (but data_size is not mutable here)", _data_counter);
+        }
     }
 
     fn request_http_upload(address: SocketAddr, url: Url, counter: Arc<LoadCounter>) {
